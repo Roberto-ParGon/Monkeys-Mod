@@ -2,11 +2,13 @@ package com.blossom.monkeysmod.entity;
 
 import com.blossom.monkeysmod.item.ModItems;
 import net.minecraft.entity.EntityType;
+import net.minecraft.entity.ItemEntity;
 import net.minecraft.entity.ai.goal.*;
 import net.minecraft.entity.attribute.DefaultAttributeContainer;
 import net.minecraft.entity.attribute.EntityAttributes;
 import net.minecraft.entity.passive.PassiveEntity;
 import net.minecraft.entity.passive.TameableEntity;
+import net.minecraft.entity.passive.WolfEntity;
 import net.minecraft.entity.player.PlayerEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.recipe.Ingredient;
@@ -15,6 +17,9 @@ import net.minecraft.util.ActionResult;
 import net.minecraft.util.Hand;
 import net.minecraft.world.World;
 import org.jetbrains.annotations.Nullable;
+
+import java.util.EnumSet;
+import java.util.List;
 
 public class MonkeyEntity extends TameableEntity {
 
@@ -28,10 +33,17 @@ public class MonkeyEntity extends TameableEntity {
         this.goalSelector.add(1, new SitGoal(this));
         this.goalSelector.add(2, new TemptGoal(this, 1.2D, Ingredient.ofItems(ModItems.PEELED_BANANA), false));
         this.goalSelector.add(3, new FollowOwnerGoal(this, 1.1D, 5.0F, 2.0F));
-        this.goalSelector.add(4, new WanderAroundFarGoal(this, 1.0D));
-        this.goalSelector.add(5, new LookAtEntityGoal(this, PlayerEntity.class, 8.0F));
-        this.goalSelector.add(6, new LookAroundGoal(this));
+        this.goalSelector.add(4, new PickupBananaGoal(this));
+        this.goalSelector.add(5, new WanderAroundFarGoal(this, 1.0D));
+        this.goalSelector.add(6, new LookAtEntityGoal(this, PlayerEntity.class, 8.0F));
+        this.goalSelector.add(7, new LookAroundGoal(this));
+
+        this.goalSelector.add(8, new MeleeAttackGoal(this, 1.2D, true));
+
+        this.targetSelector.add(1, new RevengeGoal(this));
+        this.targetSelector.add(2, new ActiveTargetGoal<>(this, WolfEntity.class, true));
     }
+
 
     @Override
     public ActionResult interactMob(PlayerEntity player, Hand hand) {
@@ -65,7 +77,8 @@ public class MonkeyEntity extends TameableEntity {
                 .add(EntityAttributes.MOVEMENT_SPEED, 0.25)
                 .add(EntityAttributes.ATTACK_DAMAGE, 3.0)
                 .add(EntityAttributes.FOLLOW_RANGE, 32.0)
-                .add(EntityAttributes.TEMPT_RANGE, 32.0);
+                .add(EntityAttributes.TEMPT_RANGE,32.0);
+
     }
 
     @Override
@@ -75,6 +88,53 @@ public class MonkeyEntity extends TameableEntity {
 
     @Override
     public @Nullable PassiveEntity createChild(ServerWorld world, PassiveEntity entity) {
-        return null;
+        return new MonkeyEntity((EntityType<? extends TameableEntity>) this.getType(), world);
+    }
+
+    static class PickupBananaGoal extends Goal {
+        private final MonkeyEntity monkey;
+        private ItemEntity target;
+
+        public PickupBananaGoal(MonkeyEntity monkey) {
+            this.monkey = monkey;
+            this.setControls(EnumSet.of(Control.MOVE));
+        }
+
+        @Override
+        public boolean canStart() {
+            if (!monkey.isAlive() || monkey.isSitting()) return false;
+            List<ItemEntity> items = monkey.getWorld().getEntitiesByClass(
+                    ItemEntity.class,
+                    monkey.getBoundingBox().expand(8.0D),
+                    e -> e.isAlive() && e.getStack().isOf(ModItems.PEELED_BANANA)
+            );
+            if (!items.isEmpty()) {
+                target = items.get(0);
+                return true;
+            }
+            return false;
+        }
+
+        @Override
+        public void start() {
+            if (target != null) {
+                monkey.getNavigation().startMovingTo(target, 1.2D);
+            }
+        }
+
+        @Override
+        public void tick() {
+            if (target != null && target.isAlive()) {
+                if (monkey.squaredDistanceTo(target) < 2.0D) {
+                    target.discard();
+                    monkey.heal(2.0F);
+                }
+            }
+        }
+
+        @Override
+        public boolean shouldContinue() {
+            return target != null && target.isAlive();
+        }
     }
 }
